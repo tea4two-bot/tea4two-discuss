@@ -53,6 +53,15 @@ jobs:
           DISCUSSION_ID="${{ github.event.discussion.node_id }}"
           COMMENT_ID="${{ github.event.comment.node_id }}"
 
+          # GitHub Discussions 只支持一层嵌套：replyToId 必须是顶层评论。
+          # 如果触发的评论本身已经是 reply，就用它的 parent id，否则直接用它自己。
+          PARENT_ID=$(gh api graphql \
+            -f query='query($id: ID!) { node(id: $id) { ... on DiscussionComment { replyTo { id } } } }' \
+            -f id="$COMMENT_ID" \
+            --jq '.data.node.replyTo.id // empty')
+
+          REPLY_TO_ID="${PARENT_ID:-$COMMENT_ID}"
+
           gh api graphql -f query='
             mutation($discussionId: ID!, $replyToId: ID!, $body: String!) {
               addDiscussionComment(input: {
@@ -64,5 +73,5 @@ jobs:
               }
             }
           ' -f discussionId="$DISCUSSION_ID" \
-            -f replyToId="$COMMENT_ID" \
+            -f replyToId="$REPLY_TO_ID" \
             -f body="$REPLY"
