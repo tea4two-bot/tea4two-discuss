@@ -1,0 +1,68 @@
+# 这个文件需要放到 tea4two-bot/tea4two-discuss 仓库的 .github/workflows/ 目录下
+# 不是主 repo，因为 Giscus 的 discussion_comment 事件在 tea4two-discuss 里触发
+
+name: 顺顺回复 @mention
+
+on:
+  discussion_comment:
+    types: [created]
+
+permissions:
+  discussions: write
+
+jobs:
+  reply:
+    runs-on: ubuntu-latest
+    # 含关键词 且 不是顺顺自己发的（防止循环）
+    if: |
+      (contains(github.event.comment.body, '@shunshun') ||
+       contains(github.event.comment.body, '顺顺')) &&
+      github.event.comment.user.login != 'tea4two-bot'
+
+    steps:
+      - name: 拉取主 repo（获取记忆和脚本）
+        uses: actions/checkout@v4
+        with:
+          repository: chunyang-w/tea4two
+          token: ${{ secrets.MAIN_REPO_TOKEN }}
+
+      - name: 生成回复
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          export COMMENT_BODY="${{ github.event.comment.body }}"
+          export COMMENTER="${{ github.event.comment.user.login }}"
+          export MEMORY=$(cat src/pet/data/memory.md)
+
+          python3 src/pet/scripts/build_mention_reply_request.py > /tmp/reply_request.json
+
+          curl -sf https://api.openai.com/v1/chat/completions \
+            -H "Authorization: Bearer $OPENAI_API_KEY" \
+            -H "Content-Type: application/json" \
+            -d @/tmp/reply_request.json \
+            | python3 src/pet/scripts/parse_response.py > /tmp/reply.txt
+
+          echo "=== 顺顺的回复 ==="
+          cat /tmp/reply.txt
+
+      - name: 在原评论下回复
+        env:
+          GH_TOKEN: ${{ secrets.BOT_TOKEN }}
+        run: |
+          REPLY=$(cat /tmp/reply.txt)
+          DISCUSSION_ID="${{ github.event.discussion.node_id }}"
+          COMMENT_ID="${{ github.event.comment.node_id }}"
+
+          gh api graphql -f query='
+            mutation($discussionId: ID!, $replyToId: ID!, $body: String!) {
+              addDiscussionComment(input: {
+                discussionId: $discussionId,
+                replyToId: $replyToId,
+                body: $body
+              }) {
+                comment { id url }
+              }
+            }
+          ' -f discussionId="$DISCUSSION_ID" \
+            -f replyToId="$COMMENT_ID" \
+            -f body="$REPLY"
