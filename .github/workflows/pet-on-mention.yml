@@ -17,7 +17,7 @@ jobs:
     if: |
       (contains(github.event.comment.body, '@shunshun') ||
        contains(github.event.comment.body, '顺顺')) &&
-      github.event.comment.user.login != 'tea4two-bot'
+      github.event.comment.user.login != 'shunshun-t42'
 
     steps:
       - name: 拉取主 repo（获取记忆和脚本）
@@ -58,9 +58,11 @@ jobs:
           PARENT_ID=$(gh api graphql \
             -f query='query($id: ID!) { node(id: $id) { ... on DiscussionComment { replyTo { id } } } }' \
             -f id="$COMMENT_ID" \
-            --jq '.data.node.replyTo.id // empty')
+            --jq '.data.node.replyTo.id // empty' 2>&1 || true)
 
+          echo "COMMENT_ID=$COMMENT_ID PARENT_ID=${PARENT_ID:-<empty>}"
           REPLY_TO_ID="${PARENT_ID:-$COMMENT_ID}"
+          echo "REPLY_TO_ID=$REPLY_TO_ID"
 
           gh api graphql -f query='
             mutation($discussionId: ID!, $replyToId: ID!, $body: String!) {
